@@ -1,0 +1,57 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.out
+
+# Go test binaries
+*.test
+
+# Go coverage
+coverage.out
+coverage.html
+
+# Go workspace
+go.work
+go.work.sum
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDEs
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/
+
+# Build directories
+bin/
+dist/
+build/
+
+# Air (hot reload)
+.air.toml
+
+# Delve debugger
+__debug_bin
+
+# Database dumps
+*.sql.gz
+*.dump
+*.bak
+
+# Docker overrides
+docker-compose.override.yml
