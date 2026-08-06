@@ -15,7 +15,7 @@ func health(c *gin.Context) {
 
 func validateExpense(req CreateExpenseRequest) error {
 	if req.AmountCents <= 0 {
-		return errors.New("Couldnt create expense, amount must be bigger than zero")
+		return errors.New("amount must be bigger than zero")
 	}
 	return nil
 }
@@ -23,7 +23,7 @@ func validateExpense(req CreateExpenseRequest) error {
 func buildExpense(c *gin.Context) (Expense, error) {
 	var req CreateExpenseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		return Expense{}, errors.New("Couldnt create expense, invalid request body")
+		return Expense{}, errors.New("invalid request body")
 	}
 	if err := validateExpense(req); err != nil {
 		return Expense{}, err
@@ -59,6 +59,22 @@ func main() {
 
 	router.GET("/expenses", func(c *gin.Context) {
 		c.JSON(http.StatusOK, expenses)
+	})
+
+	router.GET("/expenses/:id", func(c *gin.Context) {
+		expenseID := c.Param("id")
+		parsedExpenseID, err := uuid.Parse(expenseID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		for _, expense := range expenses {
+			if expense.ID == parsedExpenseID {
+				c.JSON(http.StatusOK, expense)
+				return
+			}
+		}
+		c.JSON(http.StatusNotFound, gin.H{"error": "expense not found"})
 	})
 
 	router.Run(":8080")
