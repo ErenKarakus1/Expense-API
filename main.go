@@ -13,7 +13,7 @@ func health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
 }
 
-func validateExpense(req CreateExpenseRequest) error {
+func validateExpenseRequest(req CreateExpenseRequest) error {
 	if req.AmountCents <= 0 {
 		return errors.New("amount must be bigger than zero")
 	}
@@ -25,12 +25,13 @@ func buildExpense(c *gin.Context) (Expense, error) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		return Expense{}, errors.New("invalid request body")
 	}
-	if err := validateExpense(req); err != nil {
+	if err := validateExpenseRequest(req); err != nil {
 		return Expense{}, err
 	}
 	expense := Expense{
 		ID:          uuid.New(),
 		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
 		AmountCents: req.AmountCents,
 		Category:    req.Category,
 		Description: req.Description,
@@ -79,7 +80,7 @@ func main() {
 		}
 		expense, _, err := findExpenseByID(expenses, parsedExpenseID)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "expense not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, expense)
@@ -94,11 +95,40 @@ func main() {
 		}
 		expense, idx, err := findExpenseByID(expenses, parsedExpenseID)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "expense not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 		expenses = append(expenses[:idx], expenses[idx+1:]...)
 		c.JSON(http.StatusOK, expense)
+	})
+
+	router.PUT("/expenses/:id", func(c *gin.Context) {
+		expenseID := c.Param("id")
+		parsedExpenseID, err := uuid.Parse(expenseID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		_, idx, err := findExpenseByID(expenses, parsedExpenseID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		var newExpense CreateExpenseRequest
+		if err := c.ShouldBindJSON(&newExpense); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			return
+		}
+		if err := validateExpenseRequest(newExpense); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		expenses[idx].AmountCents = newExpense.AmountCents
+		expenses[idx].Category = newExpense.Category
+		expenses[idx].Description = newExpense.Description
+		expenses[idx].UpdatedAt = time.Now()
+		c.JSON(http.StatusOK, expenses[idx])
+
 	})
 
 	router.Run(":8080")

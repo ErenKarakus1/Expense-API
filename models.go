@@ -12,6 +12,7 @@ type Expense struct {
 	Category    string    `json:"category"`
 	Description string    `json:"description"`
 	CreatedAt   time.Time `json:"createdat"`
+	UpdatedAt   time.Time `json:"updatedat"`
 }
 
 type CreateExpenseRequest struct {
