@@ -1,14 +1,81 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+const updateExpenseQuery = `
+	UPDATE expenses
+	SET
+		amount_cents=$1,
+		category=$2,
+		description=$3,
+		updated_at=NOW()
+	WHERE
+		id=$4
+	RETURNING
+		id,
+		amount_cents,
+		category,
+		description,
+		created_at,
+		updated_at
+	`
+
+const getExpensesQuery = `
+	SELECT 
+		id,
+		amount_cents,
+		category,
+		description,
+		created_at,
+		updated_at
+	FROM expenses
+	ORDER BY created_at DESC
+	`
+
+const createExpenseQuery = `
+	INSERT INTO expenses (
+		id,
+		amount_cents,
+		category,
+		description
+	)
+	VALUES ($1,$2,$3,$4)
+	RETURNING
+		id,
+		amount_cents,
+		category,
+		description,
+		created_at,
+		updated_at
+	`
+
+const findExpenseByIDQuery = `
+	SELECT 
+		id,
+		amount_cents,
+		category,
+		description,
+		created_at,
+		updated_at
+	FROM expenses 
+	WHERE id=$1
+	`
+
+const deleteExpenseQuery = `DELETE FROM expenses WHERE id=$1`
+
+var ErrExpenseNotFound = errors.New("expense not found")
+
+var ErrInternalServer = errors.New("internal server error")
 
 func health(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "ok"})
@@ -37,8 +104,6 @@ func buildExpense(c *gin.Context) (Expense, error) {
 	}
 	expense := Expense{
 		ID:          uuid.New(),
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
 		AmountCents: req.AmountCents,
 		Category:    strings.TrimSpace(req.Category),
 		Description: strings.TrimSpace(req.Description),
@@ -48,34 +113,99 @@ func buildExpense(c *gin.Context) (Expense, error) {
 
 }
 
-func findExpenseByID(expenses []Expense, expenseID uuid.UUID) (Expense, int, error) {
-	for idx, expense := range expenses {
-		if expense.ID == expenseID {
-			return expense, idx, nil
+func findExpenseByID(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID) (Expense, error) {
+	var expense Expense
+	err := pool.QueryRow(
+		ctx,
+		findExpenseByIDQuery,
+		expenseID,
+	).Scan(
+		&expense.ID,
+		&expense.AmountCents,
+		&expense.Category,
+		&expense.Description,
+		&expense.CreatedAt,
+		&expense.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return Expense{}, ErrExpenseNotFound
 		}
+		return Expense{}, err
 	}
-	return Expense{}, -1, errors.New("expense not found")
+	return expense, nil
 }
 
-func createExpenseHandler(expenses *[]Expense) gin.HandlerFunc {
+func createExpenseHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		expense, err := buildExpense(c)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		*expenses = append(*expenses, expense)
-		c.JSON(http.StatusCreated, expense)
+		var createdExpense Expense
+		err = pool.QueryRow(
+			c.Request.Context(),
+			createExpenseQuery,
+			expense.ID,
+			expense.AmountCents,
+			expense.Category,
+			expense.Description,
+		).Scan(
+			&createdExpense.ID,
+			&createdExpense.AmountCents,
+			&createdExpense.Category,
+			&createdExpense.Description,
+			&createdExpense.CreatedAt,
+			&createdExpense.UpdatedAt,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": ErrInternalServer.Error()})
+			return
+		}
+		c.JSON(http.StatusCreated, createdExpense)
 	}
 }
 
-func getExpensesHandler(expenses *[]Expense) gin.HandlerFunc {
+func getExpensesHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, *expenses)
+		rows, err := pool.Query(
+			c.Request.Context(),
+			getExpensesQuery,
+		)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": ErrInternalServer.Error()})
+			return
+		}
+		defer rows.Close()
+
+		expenses := []Expense{}
+
+		for rows.Next() {
+			var expense Expense
+			err := rows.Scan(
+				&expense.ID,
+				&expense.AmountCents,
+				&expense.Category,
+				&expense.Description,
+				&expense.CreatedAt,
+				&expense.UpdatedAt,
+			)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": ErrInternalServer.Error()})
+				return
+			}
+			expenses = append(expenses, expense)
+		}
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": ErrInternalServer.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, expenses)
 	}
 }
 
-func getExpenseByIDHandler(expenses *[]Expense) gin.HandlerFunc {
+func getExpenseByIDHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		expenseID := c.Param("id")
 		parsedExpenseID, err := uuid.Parse(expenseID)
@@ -83,16 +213,20 @@ func getExpenseByIDHandler(expenses *[]Expense) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		expense, _, err := findExpenseByID(*expenses, parsedExpenseID)
+		expense, err := findExpenseByID(c.Request.Context(), pool, parsedExpenseID)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			if errors.Is(err, ErrExpenseNotFound) {
+				c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": ErrInternalServer.Error()})
 			return
 		}
 		c.JSON(http.StatusOK, expense)
 	}
 }
 
-func deleteExpenseHandler(expenses *[]Expense) gin.HandlerFunc {
+func deleteExpenseHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		expenseID := c.Param("id")
 		parsedExpenseID, err := uuid.Parse(expenseID)
@@ -100,27 +234,29 @@ func deleteExpenseHandler(expenses *[]Expense) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		expense, idx, err := findExpenseByID(*expenses, parsedExpenseID)
+		tag, err := pool.Exec(
+			c.Request.Context(),
+			deleteExpenseQuery,
+			parsedExpenseID,
+		)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": ErrInternalServer.Error()})
 			return
 		}
-		*expenses = append((*expenses)[:idx], (*expenses)[idx+1:]...)
-		c.JSON(http.StatusOK, expense)
+		if tag.RowsAffected() == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": ErrExpenseNotFound.Error()})
+			return
+		}
+		c.Status(http.StatusNoContent)
 	}
 }
 
-func updateExpenseHandler(expenses *[]Expense) gin.HandlerFunc {
+func updateExpenseHandler(pool *pgxpool.Pool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		expenseID := c.Param("id")
 		parsedExpenseID, err := uuid.Parse(expenseID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-			return
-		}
-		_, idx, err := findExpenseByID(*expenses, parsedExpenseID)
-		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
 			return
 		}
 		var newExpense CreateExpenseRequest
@@ -132,11 +268,31 @@ func updateExpenseHandler(expenses *[]Expense) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		(*expenses)[idx].AmountCents = newExpense.AmountCents
-		(*expenses)[idx].Category = strings.TrimSpace(newExpense.Category)
-		(*expenses)[idx].Description = strings.TrimSpace(newExpense.Description)
-		(*expenses)[idx].UpdatedAt = time.Now()
-		c.JSON(http.StatusOK, (*expenses)[idx])
+		var updatedExpense Expense
+		err = pool.QueryRow(
+			c.Request.Context(),
+			updateExpenseQuery,
+			newExpense.AmountCents,
+			strings.TrimSpace(newExpense.Category),
+			strings.TrimSpace(newExpense.Description),
+			parsedExpenseID,
+		).Scan(
+			&updatedExpense.ID,
+			&updatedExpense.AmountCents,
+			&updatedExpense.Category,
+			&updatedExpense.Description,
+			&updatedExpense.CreatedAt,
+			&updatedExpense.UpdatedAt,
+		)
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				c.JSON(http.StatusNotFound, gin.H{"error": ErrExpenseNotFound.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": ErrInternalServer.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, updatedExpense)
 
 	}
 }

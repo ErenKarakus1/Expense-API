@@ -1,0 +1,8 @@
+CREATE TABLE IF NOT EXISTS expenses (
+    id UUID PRIMARY KEY,
+    amount_cents BIGINT NOT NULL, 
+    category VARCHAR(50) NOT NULL DEFAULT '',
+    description VARCHAR(500) NOT NULL DEFAULT '',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+)
