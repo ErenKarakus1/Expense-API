@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +17,12 @@ func health(c *gin.Context) {
 func validateExpenseRequest(req CreateExpenseRequest) error {
 	if req.AmountCents <= 0 {
 		return errors.New("amount must be bigger than zero")
+	}
+	if len(strings.TrimSpace(req.Category)) > 50 {
+		return errors.New("category too long")
+	}
+	if len(strings.TrimSpace(req.Description)) > 500 {
+		return errors.New("description too long")
 	}
 	return nil
 }
@@ -33,8 +40,8 @@ func buildExpense(c *gin.Context) (Expense, error) {
 		CreatedAt:   time.Now(),
 		UpdatedAt:   time.Now(),
 		AmountCents: req.AmountCents,
-		Category:    req.Category,
-		Description: req.Description,
+		Category:    strings.TrimSpace(req.Category),
+		Description: strings.TrimSpace(req.Description),
 	}
 
 	return expense, nil
@@ -126,8 +133,8 @@ func updateExpenseHandler(expenses *[]Expense) gin.HandlerFunc {
 			return
 		}
 		(*expenses)[idx].AmountCents = newExpense.AmountCents
-		(*expenses)[idx].Category = newExpense.Category
-		(*expenses)[idx].Description = newExpense.Description
+		(*expenses)[idx].Category = strings.TrimSpace(newExpense.Category)
+		(*expenses)[idx].Description = strings.TrimSpace(newExpense.Description)
 		(*expenses)[idx].UpdatedAt = time.Now()
 		c.JSON(http.StatusOK, (*expenses)[idx])
 
