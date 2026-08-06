@@ -40,6 +40,15 @@ func buildExpense(c *gin.Context) (Expense, error) {
 
 }
 
+func findExpenseByID(expenses []Expense, expenseID uuid.UUID) (Expense, int, error) {
+	for idx, expense := range expenses {
+		if expense.ID == expenseID {
+			return expense, idx, nil
+		}
+	}
+	return Expense{}, -1, errors.New("expense not found")
+}
+
 func main() {
 	expenses := []Expense{}
 
@@ -68,13 +77,28 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 			return
 		}
-		for _, expense := range expenses {
-			if expense.ID == parsedExpenseID {
-				c.JSON(http.StatusOK, expense)
-				return
-			}
+		expense, _, err := findExpenseByID(expenses, parsedExpenseID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "expense not found"})
+			return
 		}
-		c.JSON(http.StatusNotFound, gin.H{"error": "expense not found"})
+		c.JSON(http.StatusOK, expense)
+	})
+
+	router.DELETE("/expenses/:id", func(c *gin.Context) {
+		expenseID := c.Param("id")
+		parsedExpenseID, err := uuid.Parse(expenseID)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+			return
+		}
+		expense, idx, err := findExpenseByID(expenses, parsedExpenseID)
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "expense not found"})
+			return
+		}
+		expenses = append(expenses[:idx], expenses[idx+1:]...)
+		c.JSON(http.StatusOK, expense)
 	})
 
 	router.Run(":8080")
