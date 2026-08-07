@@ -3,20 +3,17 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
 
+	"github.com/ErenKarakus1/Expense-API/auth"
+	"github.com/ErenKarakus1/Expense-API/config"
 	"github.com/ErenKarakus1/Expense-API/db"
 	"github.com/ErenKarakus1/Expense-API/handlers"
 	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
 )
 
 func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Fatal("error loading environment")
-	}
-	databaseURL := os.Getenv("DATABASE_URL")
-	pool, err := db.NewPool(databaseURL)
+	cfg := config.LoadConfig()
+	pool, err := db.NewPool(cfg.DatabaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -28,15 +25,22 @@ func main() {
 
 	router.GET("/health", handlers.HealthHandler)
 
-	router.POST("/expenses", handlers.CreateExpenseHandler(pool))
+	router.POST("/register", handlers.RegisterHandler(pool))
 
-	router.GET("/expenses", handlers.GetExpensesHandler(pool))
+	router.POST("/login", handlers.LoginHandler(pool, cfg))
 
-	router.GET("/expenses/:id", handlers.GetExpenseByIDHandler(pool))
+	authGroup := router.Group("/")
+	authGroup.Use(auth.AuthMiddleware(cfg.JWTSecret))
 
-	router.DELETE("/expenses/:id", handlers.DeleteExpenseHandler(pool))
+	authGroup.POST("/expenses", handlers.CreateExpenseHandler(pool))
 
-	router.PUT("/expenses/:id", handlers.UpdateExpenseHandler(pool))
+	authGroup.GET("/expenses", handlers.GetExpensesHandler(pool))
+
+	authGroup.GET("/expenses/:id", handlers.GetExpenseByIDHandler(pool))
+
+	authGroup.DELETE("/expenses/:id", handlers.DeleteExpenseHandler(pool))
+
+	authGroup.PUT("/expenses/:id", handlers.UpdateExpenseHandler(pool))
 
 	router.Run(":8080")
 }

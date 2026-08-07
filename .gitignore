@@ -55,6 +55,3 @@ __debug_bin
 
 # Docker overrides
 docker-compose.override.yml
-
-#Local Development Tests
-api_test.go

@@ -25,8 +25,11 @@ const updateExpenseQuery = `
 		updated_at=NOW()
 	WHERE
 		id=$4
+	AND
+		user_id=$5
 	RETURNING
 		id,
+		user_id,
 		amount_cents,
 		category,
 		description,
@@ -37,12 +40,15 @@ const updateExpenseQuery = `
 const getExpensesQuery = `
 	SELECT 
 		id,
+		user_id,
 		amount_cents,
 		category,
 		description,
 		created_at,
 		updated_at
 	FROM expenses
+	WHERE
+		user_id=$1
 	ORDER BY created_at DESC
 	`
 
@@ -51,11 +57,13 @@ const createExpenseQuery = `
 		id,
 		amount_cents,
 		category,
-		description
+		description,
+		user_id
 	)
-	VALUES ($1,$2,$3,$4)
+	VALUES ($1,$2,$3,$4,$5)
 	RETURNING
 		id,
+		user_id,
 		amount_cents,
 		category,
 		description,
@@ -66,6 +74,7 @@ const createExpenseQuery = `
 const findExpenseByIDQuery = `
 	SELECT 
 		id,
+		user_id,
 		amount_cents,
 		category,
 		description,
@@ -73,31 +82,25 @@ const findExpenseByIDQuery = `
 		updated_at
 	FROM expenses 
 	WHERE id=$1
+	AND user_id=$2
 	`
 
-const deleteExpenseQuery = `DELETE FROM expenses WHERE id=$1`
+const deleteExpenseQuery = `
+	DELETE FROM expenses 
+	WHERE id=$1 
+	AND user_id=$2
+	`
 
-func ValidateExpenseRequest(req models.CreateExpenseRequest) error {
-	if req.AmountCents <= 0 {
-		return errors.New("amount must be bigger than zero")
-	}
-	if len(strings.TrimSpace(req.Category)) > 50 {
-		return errors.New("category too long")
-	}
-	if len(strings.TrimSpace(req.Description)) > 500 {
-		return errors.New("description too long")
-	}
-	return nil
-}
-
-func FindExpenseByID(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID) (models.Expense, error) {
+func FindExpenseByID(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID, userID uuid.UUID) (models.Expense, error) {
 	var expense models.Expense
 	err := pool.QueryRow(
 		ctx,
 		findExpenseByIDQuery,
 		expenseID,
+		userID,
 	).Scan(
 		&expense.ID,
+		&expense.UserID,
 		&expense.AmountCents,
 		&expense.Category,
 		&expense.Description,
@@ -113,7 +116,7 @@ func FindExpenseByID(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUI
 	return expense, nil
 }
 
-func CreateExpense(ctx context.Context, pool *pgxpool.Pool, expense models.Expense) (models.Expense, error) {
+func CreateExpense(ctx context.Context, pool *pgxpool.Pool, expense models.Expense, userID uuid.UUID) (models.Expense, error) {
 	var createdExpense models.Expense
 	err := pool.QueryRow(
 		ctx,
@@ -122,8 +125,10 @@ func CreateExpense(ctx context.Context, pool *pgxpool.Pool, expense models.Expen
 		expense.AmountCents,
 		expense.Category,
 		expense.Description,
+		userID,
 	).Scan(
 		&createdExpense.ID,
+		&createdExpense.UserID,
 		&createdExpense.AmountCents,
 		&createdExpense.Category,
 		&createdExpense.Description,
@@ -136,10 +141,11 @@ func CreateExpense(ctx context.Context, pool *pgxpool.Pool, expense models.Expen
 	return createdExpense, nil
 }
 
-func GetExpenses(ctx context.Context, pool *pgxpool.Pool) ([]models.Expense, error) {
+func GetExpenses(ctx context.Context, pool *pgxpool.Pool, userID uuid.UUID) ([]models.Expense, error) {
 	rows, err := pool.Query(
 		ctx,
 		getExpensesQuery,
+		userID,
 	)
 	if err != nil {
 		return []models.Expense{}, ErrInternalServer
@@ -152,6 +158,7 @@ func GetExpenses(ctx context.Context, pool *pgxpool.Pool) ([]models.Expense, err
 		var expense models.Expense
 		err := rows.Scan(
 			&expense.ID,
+			&expense.UserID,
 			&expense.AmountCents,
 			&expense.Category,
 			&expense.Description,
@@ -169,11 +176,12 @@ func GetExpenses(ctx context.Context, pool *pgxpool.Pool) ([]models.Expense, err
 	return expenses, nil
 }
 
-func DeleteExpense(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID) error {
+func DeleteExpense(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID, userID uuid.UUID) error {
 	tag, err := pool.Exec(
 		ctx,
 		deleteExpenseQuery,
 		expenseID,
+		userID,
 	)
 	if err != nil {
 		return ErrInternalServer
@@ -184,7 +192,7 @@ func DeleteExpense(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID)
 	return nil
 }
 
-func UpdateExpense(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID, newExpense models.CreateExpenseRequest) (models.Expense, error) {
+func UpdateExpense(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID, newExpense models.CreateExpenseRequest, userID uuid.UUID) (models.Expense, error) {
 	var updatedExpense models.Expense
 	err := pool.QueryRow(
 		ctx,
@@ -193,8 +201,10 @@ func UpdateExpense(ctx context.Context, pool *pgxpool.Pool, expenseID uuid.UUID,
 		strings.TrimSpace(newExpense.Category),
 		strings.TrimSpace(newExpense.Description),
 		expenseID,
+		userID,
 	).Scan(
 		&updatedExpense.ID,
+		&updatedExpense.UserID,
 		&updatedExpense.AmountCents,
 		&updatedExpense.Category,
 		&updatedExpense.Description,

@@ -8,6 +8,7 @@ import (
 
 type Expense struct {
 	ID          uuid.UUID `json:"id"`
+	UserID      uuid.UUID `json:"user_id"`
 	AmountCents int64     `json:"amount_cents"`
 	Category    string    `json:"category"`
 	Description string    `json:"description"`
