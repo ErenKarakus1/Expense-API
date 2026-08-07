@@ -222,6 +222,22 @@ func TestInvalidToken(t *testing.T) {
 	assertStatus(t, resp, http.StatusUnauthorized)
 }
 
+func TestInvalidAuthHeaderFormat(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, baseURL+"/expenses", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "not-a-bearer-token")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	assertStatus(t, resp, http.StatusUnauthorized)
+}
+
 func TestFullExpenseFlow(t *testing.T) {
 	token := registerAndLogin(t, uniqueEmail("expense-flow"))
 
@@ -537,7 +553,7 @@ func doRawRequest(t *testing.T, method string, path string, token string, payloa
 		req.Header.Set("Content-Type", "application/json")
 	}
 	if token != "" {
-		req.Header.Set("token", token)
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := http.DefaultClient.Do(req)

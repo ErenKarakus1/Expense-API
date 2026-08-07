@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt"
@@ -11,12 +12,19 @@ import (
 
 func AuthMiddleware(jwt_secret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := c.GetHeader("token")
-		if token == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "auth required"})
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "auth header required"})
 			c.Abort()
 			return
 		}
+		const prefix = "Bearer "
+		if !strings.HasPrefix(authHeader, prefix) {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid auth header format"})
+			c.Abort()
+			return
+		}
+		token := strings.TrimPrefix(authHeader, prefix)
 		parsedToken, err := jwt.Parse(token, func(t *jwt.Token) (interface{}, error) {
 			if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
 				return nil, errors.New("unexpected signing method")
