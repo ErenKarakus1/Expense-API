@@ -1,13 +1,13 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"os"
 
+	"github.com/ErenKarakus1/Expense-API/db"
+	"github.com/ErenKarakus1/Expense-API/handlers"
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 )
 
@@ -16,10 +16,7 @@ func main() {
 		log.Fatal("error loading environment")
 	}
 	databaseURL := os.Getenv("DATABASE_URL")
-	pool, err := pgxpool.New(
-		context.Background(),
-		databaseURL,
-	)
+	pool, err := db.NewPool(databaseURL)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -29,17 +26,17 @@ func main() {
 
 	router := gin.Default()
 
-	router.GET("/health", health)
+	router.GET("/health", handlers.HealthHandler)
 
-	router.POST("/expenses", createExpenseHandler(pool))
+	router.POST("/expenses", handlers.CreateExpenseHandler(pool))
 
-	router.GET("/expenses", getExpensesHandler(pool))
+	router.GET("/expenses", handlers.GetExpensesHandler(pool))
 
-	router.GET("/expenses/:id", getExpenseByIDHandler(pool))
+	router.GET("/expenses/:id", handlers.GetExpenseByIDHandler(pool))
 
-	router.DELETE("/expenses/:id", deleteExpenseHandler(pool))
+	router.DELETE("/expenses/:id", handlers.DeleteExpenseHandler(pool))
 
-	router.PUT("/expenses/:id", updateExpenseHandler(pool))
+	router.PUT("/expenses/:id", handlers.UpdateExpenseHandler(pool))
 
 	router.Run(":8080")
 }
